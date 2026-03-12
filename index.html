@@ -42,16 +42,15 @@
   </div>
 
 <script>
-  // 1) VAIHDA TÄHÄN oma Apps Script Web App URL
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwvJsUWMDyZqC9LZcGGUXvz0X035JsuRMRjxb0DYslugz2_CAOGLzozhlJvvNVw3Kg2zA/exec";
 
   const answers = {
     sukupuoli: null,
     ika: null,
-    vaaka_yla_ala: null,      // Q3
-    pysty_sivu: null,         // Q4
-    pienin_rivi_oikea: null,  // Q5
-    pienin_rivi_vasen: null   // Q6
+    vaaka_yla_ala: null,
+    pysty_sivu: null,
+    pienin_rivi_oikea: null,
+    pienin_rivi_vasen: null
   };
 
   const steps = [
@@ -77,13 +76,13 @@
     {
       key: "vaaka_yla_ala",
       label: "Liikkuuko vaakapalkki ylä-ala suunnassa?",
-      render: () => renderYesNo("vaaka_yla_ala"),
+      render: () => renderYesNo("vaaka_yla_ala", true),
       validate: v => v === "kyllä" || v === "ei"
     },
     {
       key: "pysty_sivu",
       label: "Liikkuuko pystypalkki sivusuunnassa?",
-      render: () => renderYesNo("pysty_sivu"),
+      render: () => renderYesNo("pysty_sivu", true),
       validate: v => v === "kyllä" || v === "ei"
     },
     {
@@ -127,7 +126,6 @@
     idx = 0;
   }
 
-  // Uusi: suosituslogiikka
   function shouldRecommendSportsVisionExam() {
     const q3Yes = answers.vaaka_yla_ala === "kyllä";
     const q4Yes = answers.pysty_sivu === "kyllä";
@@ -210,9 +208,22 @@
     $next.disabled = !step.validate(v);
   }
 
-  function renderButtons(key, options) {
+  function goToNextStep() {
+    const step = steps[idx];
+    if (!step.validate(answers[step.key])) return;
+
+    if (idx === steps.length - 1) {
+      submit();
+    } else {
+      idx += 1;
+      renderQuestion();
+    }
+  }
+
+  function renderButtons(key, options, autoNext = false) {
     const wrap = document.createElement("div");
     wrap.className = "row";
+
     options.forEach(opt => {
       const b = document.createElement("button");
       b.type = "button";
@@ -221,19 +232,28 @@
         answers[key] = opt.value;
         highlightSelected(wrap, opt.value);
         updateNextEnabled();
+
+        if (autoNext) {
+          setTimeout(() => {
+            if (state === ViewState.QUESTIONS) {
+              goToNextStep();
+            }
+          }, 120);
+        }
       };
       b.dataset.value = opt.value;
       wrap.appendChild(b);
     });
+
     highlightSelected(wrap, answers[key]);
     return wrap;
   }
 
-  function renderYesNo(key) {
+  function renderYesNo(key, autoNext = false) {
     return renderButtons(key, [
       { value: "kyllä", text: "Kyllä" },
       { value: "ei", text: "Ei" }
-    ]);
+    ], autoNext);
   }
 
   function highlightSelected(container, value) {
@@ -306,12 +326,8 @@
       setStatus("Tarkista vastaus.", "error");
       return;
     }
-    if (idx === steps.length - 1) {
-      submit();
-    } else {
-      idx += 1;
-      renderQuestion();
-    }
+
+    goToNextStep();
   };
 
   $back.onclick = () => {

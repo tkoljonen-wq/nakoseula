@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kysely</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 24px; }
+    .card { max-width: 680px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 12px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    .q { font-size: 18px; margin: 16px 0 12px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #bbb; background: #f7f7f7; cursor: pointer; }
+    button.primary { background: #111; color: #fff; border-color: #111; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    input[type="number"], input[type="text"] { padding: 10px 12px; border-radius: 10px; border: 1px solid #bbb; width: 100%; max-width: 280px; }
+    .nav { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 12px; }
+    .status { margin-top: 12px; font-size: 14px; color: #333; }
+    .error { color: #b00020; }
+    .ok { color: #0a7a0a; }
+    .progress { font-size: 13px; color: #666; }
+
+    .center { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 0; text-align: center; }
+    .thanks { font-size: 22px; margin: 0; }
+    .recommend { font-size: 16px; margin: 0; max-width: 560px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Mittauskysely</h1>
+
+    <div id="progress" class="progress"></div>
+    <div id="question" class="q"></div>
+    <div id="inputArea"></div>
+
+    <div id="nav" class="nav">
+      <button id="backBtn">Takaisin</button>
+      <button id="nextBtn" class="primary">Seuraava</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+
+<script>
+  // 1) VAIHDA TÄHÄN oma Apps Script Web App URL
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwvJsUWMDyZqC9LZcGGUXvz0X035JsuRMRjxb0DYslugz2_CAOGLzozhlJvvNVw3Kg2zA/exec";
+
+  const answers = {
+    sukupuoli: null,
+    ika: null,
+    vaaka_yla_ala: null,      // Q3
+    pysty_sivu: null,         // Q4
+    pienin_rivi_oikea: null,  // Q5
+    pienin_rivi_vasen: null   // Q6
+  };
+
+  const steps = [
+    {
+      key: "sukupuoli",
+      label: "Sukupuoli",
+      render: () => {
+        const options = [
+          { value: "mies", text: "Mies" },
+          { value: "nainen", text: "Nainen" },
+          { value: "muu/en halua vastata", text: "Muu / en halua vastata" }
+        ];
+        return renderButtons("sukupuoli", options);
+      },
+      validate: v => !!v
+    },
+    {
+      key: "ika",
+      label: "Ikä",
+      render: () => renderNumber("ika", "Syötä ikä (vuosia)", { min: 0, max: 120, step: 1 }),
+      validate: v => Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 120
+    },
+    {
+      key: "vaaka_yla_ala",
+      label: "Liikkuuko vaakapalkki ylä-ala suunnassa?",
+      render: () => renderYesNo("vaaka_yla_ala"),
+      validate: v => v === "kyllä" || v === "ei"
+    },
+    {
+      key: "pysty_sivu",
+      label: "Liikkuuko pystypalkki sivusuunnassa?",
+      render: () => renderYesNo("pysty_sivu"),
+      validate: v => v === "kyllä" || v === "ei"
+    },
+    {
+      key: "pienin_rivi_oikea",
+      label: "Mikä on pienimmän näkemäsi kirjainrivin numero oikealla silmällä?",
+      render: () => renderNumber("pienin_rivi_oikea", "Syötä rivinumero (oikea)", { min: 0, max: 200, step: 1 }),
+      validate: v => v !== null && v !== "" && !Number.isNaN(Number(v))
+    },
+    {
+      key: "pienin_rivi_vasen",
+      label: "Mikä on pienimmän näkemäsi kirjainrivin numero vasemmalla silmällä?",
+      render: () => renderNumber("pienin_rivi_vasen", "Syötä rivinumero (vasen)", { min: 0, max: 200, step: 1 }),
+      validate: v => v !== null && v !== "" && !Number.isNaN(Number(v))
+    }
+  ];
+
+  const ViewState = {
+    START: "START",
+    QUESTIONS: "QUESTIONS",
+    THANKS: "THANKS"
+  };
+
+  let state = ViewState.START;
+  let idx = 0;
+
+  const $q = document.getElementById("question");
+  const $input = document.getElementById("inputArea");
+  const $status = document.getElementById("status");
+  const $next = document.getElementById("nextBtn");
+  const $back = document.getElementById("backBtn");
+  const $progress = document.getElementById("progress");
+  const $nav = document.getElementById("nav");
+
+  function setStatus(msg, kind="") {
+    $status.className = "status " + kind;
+    $status.textContent = msg || "";
+  }
+
+  function resetAnswers() {
+    Object.keys(answers).forEach(k => answers[k] = null);
+    idx = 0;
+  }
+
+  // Uusi: suosituslogiikka
+  function shouldRecommendSportsVisionExam() {
+    const q3Yes = answers.vaaka_yla_ala === "kyllä";
+    const q4Yes = answers.pysty_sivu === "kyllä";
+
+    const right = Number(answers.pienin_rivi_oikea);
+    const left  = Number(answers.pienin_rivi_vasen);
+
+    const q5Low = Number.isFinite(right) && right < 5;
+    const q6Low = Number.isFinite(left) && left < 5;
+
+    return q3Yes || q4Yes || q5Low || q6Low;
+  }
+
+  function renderStart() {
+    state = ViewState.START;
+    $progress.textContent = "";
+    $q.textContent = "";
+    $nav.style.display = "none";
+    setStatus("");
+
+    $input.innerHTML = `
+      <div class="center">
+        <button id="startBtn" class="primary">Aloita</button>
+      </div>
+    `;
+
+    document.getElementById("startBtn").onclick = () => {
+      resetAnswers();
+      state = ViewState.QUESTIONS;
+      renderQuestion();
+    };
+  }
+
+  function renderThanks() {
+    state = ViewState.THANKS;
+    $progress.textContent = "";
+    $q.textContent = "";
+    $nav.style.display = "none";
+    setStatus("");
+
+    const recommend = shouldRecommendSportsVisionExam();
+    const recommendText = recommend
+      ? `<p class="recommend">Tulosten perusteella sinulle suositellaan tarkempaa urheilijan näöntutkimusta Silmäasemalla.</p>`
+      : "";
+
+    $input.innerHTML = `
+      <div class="center">
+        <p class="thanks">Kiitos!</p>
+        ${recommendText}
+        <button id="restartBtn" class="primary">Aloita uusi tutkimus</button>
+      </div>
+    `;
+
+    document.getElementById("restartBtn").onclick = () => {
+      renderStart();
+    };
+  }
+
+  function renderQuestion() {
+    state = ViewState.QUESTIONS;
+
+    const step = steps[idx];
+    $q.textContent = step.label;
+
+    $input.innerHTML = "";
+    $input.appendChild(step.render());
+
+    $nav.style.display = "flex";
+    $back.disabled = idx === 0;
+    $next.textContent = (idx === steps.length - 1) ? "Tallenna" : "Seuraava";
+    $progress.textContent = `Kysymys ${idx + 1} / ${steps.length}`;
+    setStatus("");
+    updateNextEnabled();
+  }
+
+  function updateNextEnabled() {
+    if (state !== ViewState.QUESTIONS) return;
+    const step = steps[idx];
+    const v = answers[step.key];
+    $next.disabled = !step.validate(v);
+  }
+
+  function renderButtons(key, options) {
+    const wrap = document.createElement("div");
+    wrap.className = "row";
+    options.forEach(opt => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = opt.text;
+      b.onclick = () => {
+        answers[key] = opt.value;
+        highlightSelected(wrap, opt.value);
+        updateNextEnabled();
+      };
+      b.dataset.value = opt.value;
+      wrap.appendChild(b);
+    });
+    highlightSelected(wrap, answers[key]);
+    return wrap;
+  }
+
+  function renderYesNo(key) {
+    return renderButtons(key, [
+      { value: "kyllä", text: "Kyllä" },
+      { value: "ei", text: "Ei" }
+    ]);
+  }
+
+  function highlightSelected(container, value) {
+    Array.from(container.querySelectorAll("button")).forEach(b => {
+      const selected = b.dataset.value === value;
+      b.style.background = selected ? "#111" : "#f7f7f7";
+      b.style.color = selected ? "#fff" : "#000";
+      b.style.borderColor = selected ? "#111" : "#bbb";
+    });
+  }
+
+  function renderNumber(key, placeholder, {min, max, step}) {
+    const wrap = document.createElement("div");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.placeholder = placeholder;
+    if (min !== undefined) input.min = String(min);
+    if (max !== undefined) input.max = String(max);
+    if (step !== undefined) input.step = String(step);
+    input.value = (answers[key] ?? "");
+    input.oninput = () => {
+      answers[key] = input.value;
+      updateNextEnabled();
+    };
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  async function submit() {
+    setStatus("Tallennetaan...");
+    $next.disabled = true;
+    $back.disabled = true;
+
+    const payload = {
+      sukupuoli: answers.sukupuoli,
+      ika: Number(answers.ika),
+      vaaka_yla_ala: answers.vaaka_yla_ala,
+      pysty_sivu: answers.pysty_sivu,
+      pienin_rivi_oikea: Number(answers.pienin_rivi_oikea),
+      pienin_rivi_vasen: Number(answers.pienin_rivi_vasen)
+    };
+
+    try {
+      const res = await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { ok: false, error: text }; }
+
+      if (!data.ok) throw new Error(data.error || "Tuntematon virhe");
+
+      renderThanks();
+
+    } catch (e) {
+      setStatus("Tallennus epäonnistui: " + e.message, "error");
+      $next.disabled = false;
+      $back.disabled = false;
+    }
+  }
+
+  $next.onclick = () => {
+    if (state !== ViewState.QUESTIONS) return;
+
+    const step = steps[idx];
+    if (!step.validate(answers[step.key])) {
+      setStatus("Tarkista vastaus.", "error");
+      return;
+    }
+    if (idx === steps.length - 1) {
+      submit();
+    } else {
+      idx += 1;
+      renderQuestion();
+    }
+  };
+
+  $back.onclick = () => {
+    if (state !== ViewState.QUESTIONS) return;
+    if (idx > 0) {
+      idx -= 1;
+      renderQuestion();
+    }
+  };
+
+  renderStart();
+</script>
+</body>
+</html>

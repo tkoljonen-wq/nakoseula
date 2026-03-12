@@ -50,7 +50,10 @@
     vaaka_yla_ala: null,
     pysty_sivu: null,
     pienin_rivi_oikea: null,
-    pienin_rivi_vasen: null
+    pienin_rivi_vasen: null,
+    paansarky_viikoittain: null,
+    silmat_vasyvat_helposti: null,
+    suoritus_epaonnistuu_vaikka_tuntui_oikealta: null
   };
 
   const steps = [
@@ -96,6 +99,24 @@
       label: "Mikä on pienimmän näkemäsi kirjainrivin numero vasemmalla silmällä?",
       render: () => renderNumber("pienin_rivi_vasen", "Syötä rivinumero (vasen)", { min: 0, max: 200, step: 1 }),
       validate: v => v !== null && v !== "" && !Number.isNaN(Number(v))
+    },
+    {
+      key: "paansarky_viikoittain",
+      label: "Kärsitkö päänsäryistä vähintään kerran viikossa?",
+      render: () => renderYesNo("paansarky_viikoittain", true),
+      validate: v => v === "kyllä" || v === "ei"
+    },
+    {
+      key: "silmat_vasyvat_helposti",
+      label: "Väsyvätkö silmäsi helposti?",
+      render: () => renderYesNo("silmat_vasyvat_helposti", true),
+      validate: v => v === "kyllä" || v === "ei"
+    },
+    {
+      key: "suoritus_epaonnistuu_vaikka_tuntui_oikealta",
+      label: "Tapahtuuko urheilusuorituksessa joskus niin, että muistellessasi virheellistä suoritusta teit mielestäsi kaikki oikein ja silti suoritus epäonnistui?",
+      render: () => renderYesNo("suoritus_epaonnistuu_vaikka_tuntui_oikealta", true),
+      validate: v => v === "kyllä" || v === "ei"
     }
   ];
 
@@ -136,7 +157,11 @@
     const q5Low = Number.isFinite(right) && right < 5;
     const q6Low = Number.isFinite(left) && left < 5;
 
-    return q3Yes || q4Yes || q5Low || q6Low;
+    const q7Yes = answers.paansarky_viikoittain === "kyllä";
+    const q8Yes = answers.silmat_vasyvat_helposti === "kyllä";
+    const q9Yes = answers.suoritus_epaonnistuu_vaikka_tuntui_oikealta === "kyllä";
+
+    return q3Yes || q4Yes || q5Low || q6Low || q7Yes || q8Yes || q9Yes;
   }
 
   function renderStart() {
@@ -293,7 +318,10 @@
       vaaka_yla_ala: answers.vaaka_yla_ala,
       pysty_sivu: answers.pysty_sivu,
       pienin_rivi_oikea: Number(answers.pienin_rivi_oikea),
-      pienin_rivi_vasen: Number(answers.pienin_rivi_vasen)
+      pienin_rivi_vasen: Number(answers.pienin_rivi_vasen),
+      paansarky_viikoittain: answers.paansarky_viikoittain,
+      silmat_vasyvat_helposti: answers.silmat_vasyvat_helposti,
+      suoritus_epaonnistuu_vaikka_tuntui_oikealta: answers.suoritus_epaonnistuu_vaikka_tuntui_oikealta
     };
 
     try {
@@ -342,4 +370,3 @@
 </script>
 </body>
 </html>
-
